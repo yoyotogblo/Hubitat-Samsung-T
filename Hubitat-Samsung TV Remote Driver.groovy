@@ -4,7 +4,7 @@ a.	Add capability to open an installed application.
 b.	Add a sendKey command buffer (if testing indicates).
 c.	Add text box capability (if it works).
 */
-def driverVer() { return "WS V2" }
+def driverVer() { return "WS V3" }
 def traceLog() { return true }
 import groovy.json.JsonOutput
 metadata {
