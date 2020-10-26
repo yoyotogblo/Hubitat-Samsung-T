@@ -24,3 +24,5 @@ g.  Do not select debub nor info logging.  This is for later installation.
 h.  Open Hubitat Logging.
 
 i.  SAVE PREFERENCES.
+
+### A listing of supported keys and functions is contained in the metadata section of the drier.
