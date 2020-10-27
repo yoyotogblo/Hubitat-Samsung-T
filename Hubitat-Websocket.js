@@ -88,9 +88,9 @@ function wsDeviceOpen(connectUrl, data) {
 	wsDevice.on('error', (err) => {
 		var message = "\n\rwsDevice.on(error): error = " + err
 //		logResponse(" ")
-		logResponse(cmdRcvd)
+		logResponse(message)
 //		console.log(" ")
-		console.log(cmdRcvd)
+		console.log(message)
 		wsDeviceStatus = "error"
 		cmdResponse["cmdStatus"] = "error"
 		cmdResponse["cmdData"] = err
