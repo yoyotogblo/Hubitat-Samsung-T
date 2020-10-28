@@ -4,7 +4,7 @@ a.	Add capability to open an installed application.
 b.	Add a sendKey command buffer (if testing indicates).
 c.	Add text box capability (if it works).
 */
-def driverVer() { return "WS V3.1" }
+def driverVer() { return "WS V3.1.1" }
 def traceLog() { return true }
 import groovy.json.JsonOutput
 metadata {
@@ -169,7 +169,7 @@ def artModeCmd(data) {
 		sendWsCmd("remote", "close")				//	Close existing remote websocket
 	}
 	pauseExecution(500)
-	sendWsCmd("frameArt", "sendMessage", data)		//	send command, connect is automatic.
+	sendWsCmd("frameArt", "sendMessage", cmdData)		//	send command, connect is automatic.
 	pauseExecution(100)
 	sendWsCmd("frameArt", "close")					//	Close websocket
 }
