@@ -4,7 +4,7 @@ a.	Add capability to open an installed application.
 b.	Add a sendKey command buffer (if testing indicates).
 c.	Add text box capability (if it works).
 */
-def driverVer() { return "WS V3.1.1" }
+def driverVer() { return "WS V3.1.3" }
 def traceLog() { return true }
 import groovy.json.JsonOutput
 metadata {
@@ -53,11 +53,18 @@ metadata {
 		command "previousChannel"		//	Goes to previous played channel.
 		command "HDMI"					//	SLOW progression through available sources.
 		
-//	===== Commands under test =====
+		//	===== Commands under test =====
 		command "aArtModeOn"
 		command "aArtModeOff"
 		command "aArtModeStatus"
 		attribute "artModeStatus", "string"
+		command "aYouTube", ["string"]
+		command "aLaunchBrowser", ["string"]
+		command "aSource0"				//	TV
+		command "aSource1"				//	one right of TV
+		command "aSource2"				//	one right of TV
+		command "aSource3"				//	one right of TV
+		command "aSource4"				//	one right of TV
 	
 	}
 	preferences {
@@ -66,18 +73,17 @@ metadata {
 		input ("hubPort", "text", title: "NodeJs Hub Port (18/19/20 Models)", defaultValue: "8080")
 		def tvModes = ["AMBIENT", "ART_MODE", "none"]
 		input ("tvPwrOnMode", "enum", title: "TV Startup Display", options: tvModes, defalutValue: "none")
-		input ("debug", "bool",  title: "Enable debug logging", defaultValue: false)
-		input ("info", "bool",  title: "Enable description text logging", defaultValue: false)
+		input ("debugLog", "bool",  title: "Enable debug logging", defaultValue: true)
+		input ("infoLog", "bool",  title: "Enable description text logging", defaultValue: true)
 	}
 }
 def installed() {
-	state.token = "12345678"
 	updateDataValue("name", "Hubitat Samsung Remote")
 	updateDataValue("name64", "Hubitat Samsung Remote".encodeAsBase64().toString())
 }
 def updated() {
+	state.remove("token")
 	logInfo("updated: get device data and model year")
-	logTrace("updated: get device data and model year")
 	unschedule()
 	sendEvent(name: "wsDeviceStatus", value: "closed")
 	pauseExecution(2000)	  
@@ -86,34 +92,32 @@ def updated() {
 }
 def getDeviceData() {
 	logInfo("getDeviceData: Updating Device Data.")
-	logTrace("getDeviceData: Updating Device Data.")
-	def tokenSupport = "false"
 	try{
 		httpGet([uri: "http://${deviceIp}:8001/api/v2/", timeout: 5]) { resp ->
-			updateDataValue("deviceMac", resp.data.device.wifiMac)
-			def modelYear = "20" + resp.data.device.model[0..1]
-			updateDataValue("modelYear", modelYear)
+			def device = resp.data.device
+			logDebug("getDeviceData: ${device}")
+			updateDataValue("deviceMac", device.wifiMac)
 			def frameTv = "false"
-			if (resp.data.device.FrameTVSupport) {
-				frameTv = resp.data.device.FrameTVSupport
+			if (device.FrameTVSupport != null) {
+				frameTv = device.FrameTVSupport
 			}
 			updateDataValue("frameTv", frameTv)
-			if (resp.data.device.TokenAuthSupport) {
-				tokenSupport = resp.data.device.TokenAuthSupport
+			def tokenSupport = "false"
+			if (device.TokenAuthSupport != null) {
+				tokenSupport = device.TokenAuthSupport
 			}
-			def uuid = resp.data.device.duid.substring(5)
-			updateDataValue("uuid", uuid)
+			if (tokenSupport == "true") { state.token = "12345678" }
 			updateDataValue("tokenSupport", tokenSupport)
-			logDebug("getDeviceData: year = $modelYear, frameTv = $frameTv, tokenSupport = $tokenSupport")
-			logTrace("getDeviceData: year = $modelYear, frameTv = $frameTv, tokenSupport = $tokenSupport")
-		} 
-	} catch (error) {  }
-		
-	return tokenSupport
+			def uuid = device.duid.substring(5)
+			updateDataValue("uuid", device.duid.substring(5))
+			logInfo("getDeviceData: frameTv = ${frameTv}, tokenSupport = ${tokenSupport}")
+			logDebug("getDeviceData: mac = ${device.wifiMac}, uuid = ${device.duid.substring(5)}")
+		}
+	} catch (error) { logWarn("getDeviceData: <b>error = </b>${error}") }
+	return true
 }
 def checkInstall() {
 	logInfo("<b>Performing test using tokenSupport = ${getDataValue("tokenSupport")}")
-	logTrace("<b>Performing test using tokenSupport = ${getDataValue("tokenSupport")}")
 	connect()
 	pauseExecution(10000)
 	menu()
@@ -138,7 +142,6 @@ def artModeData(cmd) {
 				request:"set_artmode_status",
 				id: "${getDataValue("uuid")}"]
 	data = JsonOutput.toJson(data)		//groovy version of json.stringify
-	log.trace data
 	artModeCmd(data)
 }
 def aArtModeStatus() {
@@ -146,42 +149,82 @@ def aArtModeStatus() {
 		def data = [request:"get_artmode_status",
 					id: "${getDataValue("uuid")}"]
 		data = JsonOutput.toJson(data)
-		log.trace data
 		artModeCmd(data)
 	} else { logWarn("artModeStatus: not available") }
 }
-def artModeCmd(data) {
-	def cmdData = [method:"ms.channel.emit",
-				   params:[data:"${data}",
-						   to:"host",
-						   event:"art_app_request"]]
-	cmdData = JsonOutput.toJson(cmdData)
-	log.trace cmdData
-	
-//	New sendWsCmd:  sendWsCmd(function, command, data)
-//	function will define eventual url for the connect command.
-//	current values are frameArt and remote
-//	commands are sendMessage and close.  Connection is checked
-//	prior to sending message and connects if necessary.
-//	FrameArt command is one command per connect to avoid 
-//	additional confusion and error chances
-	if (device.currentValue("wsDeviceStatus") == "open") {
-		sendWsCmd("remote", "close")				//	Close existing remote websocket
+
+//	YouTube
+def aYouTube(videoId = "Ki-Ajhd83OM") {
+	def launchData = "v=${videoId}"
+	def url = "http://${deviceIp}:8080/ws/apps/YouTube"
+	httpPost(url, launchData) { resp ->
+		logDebug("youTube:  ${resp.status}  ||  ${resp.data}")
 	}
-	pauseExecution(500)
-	sendWsCmd("frameArt", "sendMessage", cmdData)		//	send command, connect is automatic.
-	pauseExecution(100)
-	sendWsCmd("frameArt", "close")					//	Close websocket
+}
+
+def startSource() {
+	sendKey("SOURCE")
+	pauseExecution(1000)
+	sendKey("LEFT")
+	pauseExecution(200)
+	sendKey("LEFT")
+	pauseExecution(200)
+	sendKey("LEFT")
+	pauseExecution(200)
+	sendKey("LEFT")
+	pauseExecution(200)
+	sendKey("LEFT")
+	pauseExecution(200)
+}
+def aSource0() {
+	startSource()
+	sendKey("ENTER")
+}
+def aSource1() {
+	startSource()
+	sendKey("RIGHT")
+	pauseExecution(200)
+	sendKey("ENTER")
+}
+def aSource2() {
+	startSource()
+	sendKey("RIGHT")
+	pauseExecution(200)
+	sendKey("RIGHT")
+	pauseExecution(200)
+	sendKey("ENTER")
+}
+def aSource3() {
+	startSource()
+	sendKey("RIGHT")
+	pauseExecution(200)
+	sendKey("RIGHT")
+	pauseExecution(200)
+	sendKey("RIGHT")
+	pauseExecution(200)
+	sendKey("ENTER")
+}
+def aSource4() {
+	startSource()
+	sendKey("RIGHT")
+	pauseExecution(200)
+	sendKey("RIGHT")
+	pauseExecution(200)
+	sendKey("RIGHT")
+	pauseExecution(200)
+	sendKey("RIGHT")
+	pauseExecution(200)
+	sendKey("ENTER")
 }
 
 
 
 //	===== TEST Commands do not work =====
 def aGetAppsList() {
-	def data = """{"method":"ms.channel.emit","params":""" +
-				"""{"data":"","event":"ed.installedApp.get","to":"host"}}"""
-	log.trace data
-	sendWsCmd("sendMessage", data)
+	def data = [method:"ms.channel.emit",
+				params:[event: "ed.installedApp.get",
+						to: "host"]]
+	sendWsCmd("remote", "sendMessage", JsonOutput.toJson(data) )
 }
 def aSendText(text) {
 	def data = """{"method":"ms.remote.control","params":{"Cmd":"${text.encodeAsBase64().toString()}",""" +
@@ -191,6 +234,16 @@ def aSendText(text) {
 	pauseExecution(1000)
 	data = """{"method":"ms.remote.control","params":{"typeOfRemote":"SendInputString"}}"""
 	sendWsCmd("sendMessage", data)
+}
+def xxaLaunchBrowser(url = "https://community.hubitat.com/") {
+	def cmdData = [appId: "org.tizen.browser",
+				   action_type: "NATIVE_LAUNCH",
+				   metaTag: url]
+	def data = [method:"ms.channel.emit",
+				params:[event: "ed.apps.launch",
+						to: "host",
+						data: JsonOutput.toJson(cmdData)]]
+	sendWsCmd("remote", "sendMessage", JsonOutput.toJson(data) )
 }
 //	UPNP Set Volume
 def setVolume(volume) {
@@ -233,9 +286,9 @@ def xxparse(response) {
 	log.trace resp.body
 }
 
-
-//	===== Remote Commands for interface ==
-def connect() { sendWsCmd("remote", "connect") }
+//	===== Web Socket Interface Methods  ==
+//	===== Remote
+def connect(funct = "remote") { sendWsCmd(funct, "connect") }
 def sendKey(key, cmd = "Click") {
 	key = "KEY_${key.toUpperCase()}"
 	def data = [method:"ms.remote.control",
@@ -244,16 +297,39 @@ def sendKey(key, cmd = "Click") {
 						TypeOfRemote:"SendRemoteKey"]]
 	sendWsCmd("remote", "sendMessage", JsonOutput.toJson(data) )
 }
-def close() { 
-		sendEvent(name: "wsDeviceStatus", value: "closed")
-	sendWsCmd("remote", "close") 
+def artModeCmd(data) {
+	def cmdData = [method:"ms.channel.emit",
+				   params:[data:"${data}",
+						   to:"host",
+						   event:"art_app_request"]]
+	cmdData = JsonOutput.toJson(cmdData)
+//	New sendWsCmd:  sendWsCmd(function, command, data)
+//	function will define eventual url for the connect command.
+//	current values are frameArt and remote
+//	commands are sendMessage and close.  Connection is checked
+//	prior to sending message and connects if necessary.
+//	FrameArt command is one command per connect to avoid 
+//	additional confusion and error chances
+	if (device.currentValue("wsDeviceStatus") == "open") {
+		close("remote")								//	Close existing remote websocket
+	}
+	pauseExecution(500)
+	sendWsCmd("frameArt", "sendMessage", cmdData)	//	send command, connect is automatic.
+}
+def close(funct = "remote") { 
+	sendEvent(name: "wsDeviceStatus", value: "closed")
+	sendWsCmd(funct, "close") 
 }
 
 //	===== Communications =====
 def sendWsCmd(function, command, data = "") {
 	logDebug("sendWsCmd: ${function} | ${command} | ${data}")
-	logTrace("sendWsCmd: ${function} | ${command} | ${data}")
 	def name = getDataValue("name64")
+	if (function == "remote") {
+		runIn(300, close, [data: function])
+	} else {
+		runIn(10, close, [data: function])
+	}
 	def url
 	if (getDataValue("tokenSupport") == "true") {
 		def token = state.token
@@ -279,7 +355,7 @@ def sendWsCmd(function, command, data = "") {
 				pauseExecution(100)
 			}
 			interfaces.webSocket.sendMessage(data)
-		} else if (command == "close" && getDataValue("wsDeviceStatus") != "closed") {
+		} else {
 			interfaces.webSocket.close()
 		}
 	}
@@ -293,7 +369,6 @@ def wsHubParse(response) {
 	def data = "command = ${command} || hubStatus = ${hubStatus} || "
 	data += "wsDeviceStatus = ${wsDeviceStatus} || cmdResponse = ${cmdResponse}"
 	logDebug("wsHubParse: ${data}")
-	logTrace("wsHubParse: ${data}")
 	if (cmdResponse == "{}") { return }
 	//	===== Update connection status.
 	if (device.currentValue("wsDeviceStatus") != wsDeviceStatus) {
@@ -308,18 +383,19 @@ def wsHubParse(response) {
 			logTrace("wsHubParse: token updated to ${newToken}")
 			state.token = newToken
 		}
-	} catch (e) {}
+	} catch (e) {
+		logDebug("wsHubParse: <b>error</b> creating token = ${e}")
+	}
 }
 def parse(message) {
-	logTrace("parse: ${message}")
+	logDebug("parse: ${message}")
 	def resp = parseJson(message)
 	if (resp.event == "ms.error") {
-		logDebug("parse: error = ${resp.data.message}")
-		logTrace("parse: error = ${resp.data.message}")
+		logDebug("parse: <b>error</b> = ${resp.data.message}")
 	}
 }
 def webSocketStatus(message) {
-	logTrace("webSocketStatus: ${message}")
+	logDebug("webSocketStatus: ${message}")
 	if (message == "status: open") {
 		sendEvent(name: "wsDeviceStatus", value: "open")
 	} else if (message == "status: closing") {
@@ -392,13 +468,13 @@ def logTrace(msg) {
 	}
 }
 def logInfo(msg) { 
-	if (info == true) {
+//	if (info == true) {
 		log.info "${driverVer()} || ${msg}"
-	}
+//	}
 }
 def logDebug(msg) {
-	if (debug == true) {
+//	if (debug == true) {
 		log.debug "${driverVer()} || ${msg}"
-	}
+//	}
 }
 def logWarn(msg) { log.warn "${driverVer()} || ${msg}" }
