@@ -29,7 +29,7 @@ i.  SAVE PREFERENCES.
 
 2.  Internal button interface to support Hubitat Dashboard integration.  List of buttons/keys is embedded in the code.
 
-## NEXT (possibilitis):
+## NEXT (possibilities):
 
 A.  Adding application start functions.
 
