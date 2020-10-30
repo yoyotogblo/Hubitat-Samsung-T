@@ -21,7 +21,15 @@ g.  Select DEBUG and INFO Logging for initial installation.  This is for later i
 
 h.  Open Hubitat Logging.
 
-i.  SAVE PREFERENCES.
+i.  Grab you TV remote.  You will need to allow this apps access to your tv VERY QUICKLY.
+
+j.  SAVE PREFERENCES.  This will update data and run a menu command to cause the on-screen menu to appear.  Note, if you had to accept the access on your TV, you should see a log entry "Beta 1.0 || parse: Token updated to NNNNNNNN".  If you do not, simply "Close" then run the menu command.  Again, VERY SHORT response time for accepting control.
+
+k.  Most Common Errors:
+
+    1)  Did not install the "ws" capability on the node.js server setup.
+    
+    2)  Did not start the node.js server and leave it running.
 
 ## Features:
 
