@@ -1,9 +1,7 @@
-# Hubitat-Samsung-TV
+# Hubitat-Samsung-TV BETA Version
 Hubitat Samsung TV driver with associated node.js application
 
-### This is a test implementation and is exclusively for Hubitat integration.  It is designed to work with 2016 and later Samsung TV's
-
-Instructions:
+## Instructions:
 
 a. Create the new driver in Hubitat using the driver file:  'Hubitat-Samsung TV Remote Driver.groovy'
 
@@ -17,12 +15,22 @@ d.  Install the device using the driver "Hubitat-Samsung Remote"
 
 e.  In preferences, enter the TV's IP Address
 
-f.  For 2018 and later, enter the server's IP Address
+f.  For 2017 and later, enter the server's IP Address
 
-g.  Do not select debub nor info logging.  This is for later installation.
+g.  Select DEBUG and INFO Logging for initial installation.  This is for later installation.
 
 h.  Open Hubitat Logging.
 
 i.  SAVE PREFERENCES.
 
-### A listing of supported keys and functions is contained in the metadata section of the drier.
+## Features:
+
+1.  Supports new remote keys plus selected other function.  A list of support keys is embedded in the code (beta version)
+
+2.  Internal button interface to support Hubitat Dashboard integration.  List of buttons/keys is embedded in the code.
+
+## NEXT (possibilitis):
+
+A.  Adding application start functions.
+
+B.  Use of UPnP to explicitly set volume and implementing Hubitat capability Audio Control
