@@ -24,8 +24,11 @@ a.	For model years 2017 and later, a stand-alone node.js server installed IAW pr
 b.	This driver installed and configured IAW provided instructions.
 ===== RELEASE NOTES =======================================================================
 Beta 1.0	Initial release
+Beta 1.1	Updated to work WITHOUT an external NodeJs Server (2017 + models
+			1.	Changed youTube launch to Home Page.
+			2.	Added Netflix key
 */
-def driverVer() { return "Beta 1.0" }
+def driverVer() { return "Beta 1.1" }
 import groovy.json.JsonOutput
 metadata {
 	definition (name: "Hubitat-Samsung Remote",
@@ -63,7 +66,7 @@ metadata {
 		command "source"				//	Pops up home with cursor at source.  Use left/right/enter to select.
 		command "info"					//	Pops up upper display of currently playing channel
 		command "channelList"			//	Pops up short channel-list that allows faster navigation to favorites.
-		command "source0"				//	Direct to source TV
+		command "TV"					//	Direct to source TV
 		command "source1"				//	Direct to source 1 (one right of TV on menu)
 		command "source2"				//	Direct to source 1 (two right of TV on menu)
 		command "source3"				//	Direct to source 1 (three right of TV on menu)
@@ -75,16 +78,15 @@ metadata {
 		command "fastForward"			//	Fast Forward vice jump forward
 		//	===== Media Commands =====
 		command "browser"				//	Opens browser
-		command "youTube", ["string"]	//	Opens youTube.  Default is a Hubitat Live session.
+		command "youTube"				//	Opens youTube.
+		command "netflix"				//	Opens youTube.
 		//	===== Button Interface =====
 		capability "PushableButton"
 		command "push", ["NUMBER"]
 	}
 	preferences {
 		input ("deviceIp", "text", title: "Samsung TV Ip")
-		input ("hubIp", "text", title: "NodeJs Hub IP (18,19,20 Models")
-		input ("hubPort", "text", title: "NodeJs Hub Port (18/19/20 Models)", defaultValue: "8080")
-		def tvModes = ["AMBIENT", "ART_MODE", "none"]
+		def tvModes = ["AMBIENT", "ART_MODE", "TV", "Source1", "Source2", "Source3", "Source4", "none"]
 		input ("tvPwrOnMode", "enum", title: "TV Startup Display", options: tvModes, defalutValue: "none")
 		input ("debugLpg", "bool",  title: "Enable debug logging for 30 minutes", defaultValue: true)
 		input ("infoLog", "bool",  title: "Enable description text logging", defaultValue: true)
@@ -98,14 +100,16 @@ def installed() {
 	updateDataValue("name64", "Hubitat Samsung Remote".encodeAsBase64().toString())
 }
 def updated() {
-	logInfo("updated: get device data and model year")
+	logInfo("updated")
 	unschedule()
 	sendEvent(name: "numberOfButtons", value: "50")
 	sendEvent(name: "wsDeviceStatus", value: "closed")
 	if (debugLog) { runIn(1800, debugLogOff) }
-	def tokenSupport = getDeviceData()
-	logInfo("Performing test using tokenSupport = ${tokenSupport}")
-	checkInstall()
+	if (!getDataValue("uuid")) {
+		def tokenSupport = getDeviceData()
+		logInfo("Performing test using tokenSupport = ${tokenSupport}")
+		checkInstall()
+	}
 }
 def getDeviceData() {
 	logInfo("getDeviceData: Updating Device Data.")
@@ -129,7 +133,7 @@ def getDeviceData() {
 			logInfo("getDeviceData: year = $modelYear, frameTv = $frameTv, tokenSupport = $tokenSupport")
 		} 
 	} catch (error) {
-		logWarn("getDeviceData: Failed.  Error = ${error}")
+		logWarn("getDeviceData: Failed.  TV may be powered off.  Error = ${error}")
 	}
 		
 	return tokenSupport
@@ -175,11 +179,19 @@ def sendWsCmd(funct, command, data = "") {
 		} else {
 			logWarn("sendWsCmd: Invalid Function = ${funct}, tokenSupport = true")
 		}
-		def headers = [HOST: "${hubIp}:${hubPort}", command: command, data: data, url: url]
-		sendHubCommand(new hubitat.device.HubAction([headers: headers],
-												device.deviceNetworkId,
-												[callback: wsHubParse]))
-
+		if (command == "connect") {
+				interfaces.webSocket.connect(url, ignoreSSLIssues: true)
+		} else if (command == "sendMessage") {
+			if (getDataValue("wsDeviceStatus") != "open") {
+				interfaces.webSocket.connect(url, ignoreSSLIssues: true)
+				pauseExecution(500)
+			}
+			interfaces.webSocket.sendMessage(data)
+		} else if (command == "close") {
+			interfaces.webSocket.close()
+		} else {
+			logWarn("sendWsCmd: Invalid Command = ${command}")
+		}
 	} else {
 		if (funct == "remote") {
 			url = "ws://${deviceIp}:8001/api/v2/channels/samsung.remote.control?name=${name}"
@@ -264,6 +276,7 @@ def webSocketStatus(message) {
 
 //	===== Samsung Smart Remote Keys =====
 def on() {
+	logDebug("on: desired TV Mode = ${tvPwrOnMode}")
 	def newMac = getDataValue("deviceMac").replaceAll(":","").replaceAll("-","")
 	def result = new hubitat.device.HubAction (
 		"wake on lan $newMac",
@@ -272,8 +285,9 @@ def on() {
 	)
 	sendHubCommand(result)
 	sendEvent(name: "switch", value: "on")
-	if(tvPwrOnMode == "ART_MODE") { toggleArt() }
-	else if(tvPwrOnMode == "AMBIENT") { sendKey("AMBIENT") }
+	pauseExecution(5000)
+	if(tvPwrOnMode == "ART_MODE") { artModeOn() }
+	else { sendKey(tvPwrOnMode) }
 }
 def off() {
 	sendEvent(name: "switch", value: "off")
@@ -356,7 +370,7 @@ def startSource() {
 	sendKey("LEFT")
 	pauseExecution(200)
 }
-def source0() {
+def TV() {
 	startSource()
 	sendKey("ENTER")
 }
@@ -411,11 +425,16 @@ def fastForward() {
 	sendKey("RIGHT", "Release")
 }
 def browser() { sendKey("CONVERGENCE") }
-def youTube(videoId = "Ki-Ajhd83OM") {
-	def launchData = "v=${videoId}"
+def youTube() {
 	def url = "http://${deviceIp}:8080/ws/apps/YouTube"
-	httpPost(url, launchData) { resp ->
+	httpPost(url, "") { resp ->
 		logDebug("youTube:  ${resp.status}  ||  ${resp.data}")
+	}
+}
+def netflix() {
+	def url = "http://${deviceIp}:8080/ws/apps/Netflix"
+	httpPost(url, "") { resp ->
+		logDebug("netflix:  ${resp.status}  ||  ${resp.data}")
 	}
 }
 //	===== Button Interface (facilitates dashboard integration) =====
@@ -466,6 +485,8 @@ def push(pushed) {
 		case 36: fastBack(); break		//	causes fast forward
 		case 37: fastForward(); break	//	causes fast rewind
 		case 38: browser(); break		//	Direct to source 1 (ofour right of TV on menu)
+		case 39: youTube(); break
+		case 40: netflix(); break
 		default:
 			logDebug("push: Invalid Button Number!")
 			break
